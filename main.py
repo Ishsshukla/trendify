@@ -1,87 +1,74 @@
-# main.py
-
-# from fastapi import FastAPI
-from fastapi import FastAPI, Request
-
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 import pandas as pd
-import spacy
+from fastapi.middleware.cors import CORSMiddleware
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import DBSCAN
-import wordcloud
-import matplotlib.pyplot as plt
-from spacy.lang.en.stop_words import STOP_WORDS
+from fastapi import FastAPI
 
 app = FastAPI()
 
-# Use Jinja2 templates for HTML rendering
-templates = Jinja2Templates(directory="templates")
+origins = [
+    "http://127.0.0.1:8000",
+    "http://localhost:5173",
+    # "https://workshala-navy.vercel.app",
+    "http://localhost:5000",
+]
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def load_data(file_path):
-    return pd.read_csv(file_path)
+# Load your product data
+# Make sure to replace 'path/to/your/product_data.csv' with the actual path to your product data CSV file
+corpus = pd.read_csv('path/to/your/product_data.csv')
 
+# Preprocess your product data
+corpus['clean_description'] = corpus['description'].str.replace(r"<[a-z/]+>", " ") 
+corpus['clean_description'] = corpus['clean_description'].str.replace(r"[^A-Za-z]+", " ") 
+corpus['clean_description'] = corpus['clean_description'].str.lower()
+corpus["clean_tokens"] = corpus["clean_description"].apply(lambda x: x.split())
+corpus["clean_document"] = [" ".join(x) for x in corpus['clean_tokens']]
 
-def clean_data(corpus):
-    # Remove HTML elements
-    corpus['clean_description'] = corpus['description'].str.replace(r"<[a-z/]+>", " ")
-    # Remove special characters and numbers
-    corpus['clean_description'] = corpus['clean_description'].str.replace(r"[^A-Za-z]+", " ")
-    # Lowercase
-    corpus['clean_description'] = corpus['clean_description'].str.lower()
+# TF-IDF vectorization
+vectorizer = TfidfVectorizer(stop_words='english')
+X = vectorizer.fit_transform(corpus["clean_document"])
 
-    # Tokenize the cleaned description
-    nlp = spacy.load('en_core_web_sm')
-    corpus['clean_tokens'] = corpus['clean_description'].apply(lambda x: nlp(x))
+# Perform clustering using DBSCAN
+clustering = DBSCAN(eps=0.7, min_samples=3, metric="cosine", algorithm="brute")
+clustering.fit(X)
 
-    # Remove stop words
-    corpus['clean_tokens'] = corpus['clean_tokens'].apply(lambda x: [token.lemma_ for token in x if token.text not in STOP_WORDS])
+# Assign cluster labels to the corpus
+corpus['cluster_id'] = clustering.labels_
 
-    # Put back tokens into one single string
-    corpus["clean_document"] = [" ".join(x) for x in corpus['clean_tokens']]
+# Function to get product recommendations
+def get_product_recommendations(product_description: str):
+    # Preprocess the input description
+    clean_description = preprocess_description(product_description)
 
+    # Vectorize the input description
+    new_vector = vectorizer.transform([clean_description])
 
-def vectorize_text(corpus):
-    vectorizer = TfidfVectorizer(stop_words='english')
-    X = vectorizer.fit_transform(corpus["clean_document"])
-    X = X.toarray()
-    X_df = pd.DataFrame(X, columns=vectorizer.get_feature_names_out(), index=["item_{}".format(x) for x in range(corpus.shape[0])])
-    return X_df
+    # Predict cluster for the input description
+    cluster_id = clustering.predict(new_vector)[0]
 
+    # Get product recommendations from the same cluster
+    recommendations = corpus.loc[corpus['cluster_id'] == cluster_id, 'product_name'].tolist()
 
-def cluster_documents(X_df, corpus):
-    clustering = DBSCAN(eps=0.7, min_samples=3, metric="cosine", algorithm="brute")
-    clustering.fit(X_df)
-    corpus['cluster_id'] = clustering.labels_
-    X_df['cluster_id'] = clustering.labels_
+    return recommendations
 
+def preprocess_description(description: str):
+    # Implement your description preprocessing logic here (similar to what you did before)
+    description = description.replace(r"<[a-z/]+>", " ") 
+    description = description.replace(r"[^A-Za-z]+", " ") 
+    description = description.lower()
+    tokens = description.split()
+    clean_description = " ".join(tokens)
+    return clean_description
 
-@app.get("/", response_class=HTMLResponse)
-def read_root(request: Request):
-    # Additional FastAPI route (can be modified according to your needs)
-    return templates.TemplateResponse("index.html", {"request": request})
-
-
-def main():
-    # Load data
-    file_path = 'C:/Users/ishs4/Desktop/promotheo/sample-data.csv'
-    corpus = load_data(file_path)
-
-    # Clean data
-    clean_data(corpus)
-
-    # Vectorize text
-    X_df = vectorize_text(corpus)
-
-    # Cluster documents
-    cluster_documents(X_df, corpus)
-
-    # Display or print results
-    print(corpus.head())
-    print(corpus['cluster_id'].value_counts())
-
-    # Additional analysis or visualization code can be added here
-
-if __name__ == "__main__":
-    main()
+@app.get("/product-recommendations/{product_description}")
+def recommend_products(product_description: str):
+    recommendations = get_product_recommendations(product_description)
+    return {"product_recommendations": recommendations}
