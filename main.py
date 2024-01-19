@@ -1,23 +1,27 @@
+# main.py
+
+# from fastapi import FastAPI
 from fastapi import FastAPI, Request
+
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import pandas as pd
 import spacy
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import DBSCAN
+import wordcloud
+import matplotlib.pyplot as plt
 from spacy.lang.en.stop_words import STOP_WORDS
 
 app = FastAPI()
 
-# Mount a directory to serve static files (if needed)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 # Use Jinja2 templates for HTML rendering
 templates = Jinja2Templates(directory="templates")
 
+
 def load_data(file_path):
     return pd.read_csv(file_path)
+
 
 def clean_data(corpus):
     # Remove HTML elements
@@ -37,6 +41,7 @@ def clean_data(corpus):
     # Put back tokens into one single string
     corpus["clean_document"] = [" ".join(x) for x in corpus['clean_tokens']]
 
+
 def vectorize_text(corpus):
     vectorizer = TfidfVectorizer(stop_words='english')
     X = vectorizer.fit_transform(corpus["clean_document"])
@@ -44,16 +49,19 @@ def vectorize_text(corpus):
     X_df = pd.DataFrame(X, columns=vectorizer.get_feature_names_out(), index=["item_{}".format(x) for x in range(corpus.shape[0])])
     return X_df
 
+
 def cluster_documents(X_df, corpus):
     clustering = DBSCAN(eps=0.7, min_samples=3, metric="cosine", algorithm="brute")
     clustering.fit(X_df)
     corpus['cluster_id'] = clustering.labels_
     X_df['cluster_id'] = clustering.labels_
 
+
 @app.get("/", response_class=HTMLResponse)
 def read_root(request: Request):
     # Additional FastAPI route (can be modified according to your needs)
     return templates.TemplateResponse("index.html", {"request": request})
+
 
 def main():
     # Load data
