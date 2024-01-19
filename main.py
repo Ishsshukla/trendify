@@ -23,7 +23,7 @@ app.add_middleware(
 
 # Load your product data
 # Make sure to replace 'path/to/your/product_data.csv' with the actual path to your product data CSV file
-corpus = pd.read_csv('path/to/your/product_data.csv')
+corpus = pd.read_csv('C:\Users\ishs4\Desktop\promotheo\sample-data.csv')
 
 # Preprocess your product data
 corpus['clean_description'] = corpus['description'].str.replace(r"<[a-z/]+>", " ") 
